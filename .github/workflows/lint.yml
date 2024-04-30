@@ -1,0 +1,101 @@
+---
+name: Lints
+
+on:
+  workflow_call: {}
+
+defaults:
+  run:
+    # Feel free to run wild with the bashisms.
+    #
+    # Explicitly requesting "bash" executes snippets with the 'errexit',
+    # 'nounset', and 'pipefail' options.
+    shell: bash
+
+jobs:
+  lints:
+    name: Lints
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Commit Check
+        uses: gsactions/commit-message-checker@v2
+        with:
+          pattern: |
+            ^[^:!]+: .+\n\n.*$
+          error: 'Commit must begin with <scope>: <subject>'
+          flags: 'gm'
+          excludeTitle: true
+          excludeDescription: true
+          checkAllCommitMessages: true
+          accessToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout
+        id: checkout
+        if: >-
+          !cancelled()
+        uses: actions/checkout@v4
+
+      - name: Check Filenames
+        if: >-
+          !cancelled() &&
+          steps.checkout.conclusion == 'success'
+        run: | # Check for all the characters Windows hates.
+          ct=0
+          git ls-files -- ':/:*[<>:"|?*]*' | while read -r file; do
+            printf '::error file=%s,title=Bad Filename::Disallowed character in file name.\n' "$file"
+            : $((++ct))
+          done
+          exit "${ct}"
+
+      - name: Check API Reference
+        if: >-
+          !cancelled() &&
+          steps.checkout.conclusion == 'success'
+        run: | # Ensure OpenAPI docs are up-to-date, if present.
+          if [[ ! -f openapi.yaml ]]; then
+            exit 0
+          fi
+          npx widdershins \
+            --search false \
+            --language_tabs 'python:Python' 'go:Golang' 'javascript:Javascript' \
+            --summary \
+            ./openapi.yaml \
+            -o ./Documentation/reference/api.md
+          git diff --exit-code
+
+      - name: Check Container Versions
+        if: >-
+          !cancelled() &&
+          steps.checkout.conclusion == 'success'
+        run: | # Make sure the Go version is consistent across the repo.
+          version=$(sed -n '/^go /{s/go \(1\.[0-9]\+\)\.[0-9]\+/\1/;p;q}' go.mod)
+          {
+            find . -name Dockerfile |
+              xargs awk -v "want=$version" '/^ARG GO_VERSION/{split($2,ver,/=/);if(ver[2]!=want) printf "%s\t%d\n", FILENAME, FNR}'
+            if [[ -f docker-compose.yaml ]]; then
+              awk -v "want=$version" '/&go-image/{split($3,ref,/:/);if(ref[2]!=want) printf "%s\t%d\n", FILENAME, FNR}' docker-compose.yaml
+            fi
+          } |
+            awk -v "want=$version" '{printf "::error file=%s,line=%d,title=Go Version Skew::Go version does not match `go.mod`: want %s\n", $1, $2, want}'
+
+      - name: Setup Go
+        id: 'setupgo'
+        if: >-
+          !cancelled()
+          && steps.checkout.conclusion == 'success'
+        uses: actions/setup-go@v5
+        with:
+          cache: false
+          go-version-file: ./go.mod
+
+      - name: Go Tidy
+        if: >-
+          !cancelled() &&
+          steps.checkout.conclusion == 'success' &&
+          steps.setupgo.conclusion == 'success'
+        run: | # Make sure every module is tidy.
+          find . \
+            -not \( -name '.?*' -prune \) \
+            -name go.mod \
+            \( -execdir sh -ec 'go mod tidy; git diff --exit-code' \; -o -printf '::error file=%p,title=Tidy Check::Commit would leave go.mod untidy\n' \)
