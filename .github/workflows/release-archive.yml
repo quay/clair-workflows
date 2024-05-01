@@ -1,0 +1,92 @@
+---
+name: Create Release Archive
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        type: string
+        required: false
+        default: |
+          archive
+      compressor:
+        description: |
+          Printf string for the compressor to use on created tar.
+
+          The uncompressed tar will be the first and only string argument.
+          Single quotes need to be shell escaped.
+        type: string
+        required: false
+        default: |
+          zstd --rm --compress %q
+    outputs:
+      has-cmds:
+        description: |
+          Set non-zero if there are directories under a directory named 'cmd'.
+
+          'Internal' directories are ignored.
+        value: ${{ jobs.archive.outputs.has-cmds }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  archive:
+    name: Archive
+    runs-on: 'ubuntu-latest'
+    outputs:
+      has-cmds: ${{ steps.create-archive.outputs.has-cmds }}
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        id: 'setupgo'
+        if: >-
+          !cancelled() &&
+          steps.checkout.conclusion == 'success'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ./go.mod
+
+      - name: Create Archive
+        id: create-archive
+        if: >-
+          !cancelled() &&
+          steps.setupgo.conclusion == 'success'
+        run: | # Make a tarball with vendored dependencies.
+          # Fix the checkout action overwriting the tag.
+          # See also: https://github.com/actions/checkout/issues/882
+          git fetch origin "+${GITHUB_REF}:${GITHUB_REF}"
+
+          # Varaibles.
+          tag="${GITHUB_REF##refs/tags/}"
+          name="${GITHUB_REPOSITORY##*/}"
+          prefix="${name}-${tag}/"
+          tarball="${name}-${tag}.tar"
+          
+          # Make git archive.
+          git archive --prefix "${prefix}" -o "${tarball}" "${GITHUB_REF}"
+          echo "has-cmds=$(tar -tf "${tarball}" '*/cmd/*' | grep -Ev 'internal|\.go$' | wc -l)" >> "${GITHUB_OUTPUT}"
+
+          # Slipstream dependencies.
+          go mod vendor
+          tar -rf "${tarball}" --transform "s,^,${prefix}," vendor && rm -rf vendor
+          $(printf '${{ inputs.compressor }}' "${tarball}")
+
+          # Output the file name.
+          echo "name="*.tar.* >> "${GITHUB_OUTPUT}"
+
+      - name: Upload Archive
+        uses: actions/upload-artifact@v4
+        if: >-
+          !cancelled() &&
+          steps.create-archive.conclusion == 'success'
+        with:
+          name: '${{ inputs.artifact-name }}'
+          path: '${{ steps.create-archive.outputs.name }}'
+          if-no-files-found: error
