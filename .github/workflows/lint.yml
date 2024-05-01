@@ -6,10 +6,6 @@ on:
 
 defaults:
   run:
-    # Feel free to run wild with the bashisms.
-    #
-    # Explicitly requesting "bash" executes snippets with the 'errexit',
-    # 'nounset', and 'pipefail' options.
     shell: bash
 
 jobs:
