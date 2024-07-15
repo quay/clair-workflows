@@ -1,57 +1,72 @@
----
-name: Lints
-
-on:
-  workflow_call: {}
-
 defaults:
   run:
     shell: bash
-
 jobs:
   lints:
     name: Lints
     runs-on: ubuntu-latest
     steps:
-
-      - name: Commit Check
-        uses: gsactions/commit-message-checker@v2
+      - env:
+          INPUT_FLAGS: "${{ inputs.flags }}"
+          INPUT_PATTERN: "${{ inputs.pattern }}"
+        name: Commit Check
+        uses: "actions/github-script@v7"
         with:
-          pattern: |
-            ^[^:!]+: .+\n\n.*$
-          error: 'Commit must begin with <scope>: <subject>'
-          flags: 'gm'
-          excludeTitle: true
-          excludeDescription: true
-          checkAllCommitMessages: true
-          accessToken: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            core.debug(`eventName: ${context.eventName}`);
+            if (context.eventName != 'pull_request') {
+              core.info('skipping event');
+              return;
+            }
 
-      - name: Checkout
-        id: checkout
-        if: >-
-          !cancelled()
-        uses: actions/checkout@v4
+            const call = github.paginate(
+              github.rest.pulls.listCommits,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request,
+              },
+              (res) =>
+                res.data.map((obj) => { obj.sha, obj.commit.message }),
+            );
 
-      - name: Check Filenames
-        if: >-
-          !cancelled() &&
-          steps.checkout.conclusion == 'success'
-        run: | # Check for all the characters Windows hates.
-          ct=0
-          git ls-files -- ':/:*[<>:"|?*]*' | while read -r file; do
+            const regexp = new Regexp(core.getInput('pattern'), core.getInput('flags'));
+            const failed = [];
+
+            for await (const commit of github.paginate(github.rest.pulls.listCommits, args, mapcommit)) {
+              regexp.lastIndex = 0;
+              const ok = regexp.test(commit.message);
+              core.info(`${commit.sha}: ${ok ? 'ok' : 'fail'}`);
+              if (!ok)
+                failed.push(commit.sha);
+            }
+
+            if (failed.len() != 0)
+              core.setFailed(`Commits with bad messages: ${failed}`);
+
+            return;
+      - id: checkout
+        if: "!cancelled()"
+        name: Checkout
+        uses: "actions/checkout@v4"
+      - id: filenames
+        if: "!cancelled() && steps.checkout.conclusion == 'success'"
+        name: Check Filenames
+        run: |
+          #!/bin/bash
+          [ -n "$DEBUG" ] && set -x
+          # Check for all the characters Windows hates.
+          while read -r file; do
             printf '::error file=%s,title=Bad Filename::Disallowed character in file name.\n' "$file"
-            : $((++ct))
-          done
-          exit "${ct}"
-
-      - name: Check API Reference
-        if: >-
-          !cancelled() &&
-          steps.checkout.conclusion == 'success'
-        run: | # Ensure OpenAPI docs are up-to-date, if present.
-          if [[ ! -f openapi.yaml ]]; then
-            exit 0
-          fi
+            : $(( ct++ ))
+          done < <(git ls-files -- ':/:*[<>:"|?*]*')
+          exit "${ct-0}"
+      - id: api
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && hashFiles('openapi.yaml') != ''"
+        name: Check API Reference
+        run: |
+          #!/bin/bash
+          [ -n "$DEBUG" ] && set -x
           npx widdershins \
             --search false \
             --language_tabs 'python:Python' 'go:Golang' 'javascript:Javascript' \
@@ -59,39 +74,87 @@ jobs:
             ./openapi.yaml \
             -o ./Documentation/reference/api.md
           git diff --exit-code
-
-      - name: Check Container Versions
-        if: >-
-          !cancelled() &&
-          steps.checkout.conclusion == 'success'
-        run: | # Make sure the Go version is consistent across the repo.
+      - id: container
+        if: "!cancelled() && steps.checkout.conclusion == 'success'"
+        name: Check Container Versions
+        run: |
+          #!/bin/bash
+          [ -n "$DEBUG" ] && set -x
+          # Make sure the Go version is consistent across the repo.
+          # Operates on all Dockerfile and docker-compose.yaml files in the repo.
           version=$(sed -n '/^go /{s/go \(1\.[0-9]\+\)\.[0-9]\+/\1/;p;q}' go.mod)
           {
-            find . -name Dockerfile |
-              xargs awk -v "want=$version" '/^ARG GO_VERSION/{split($2,ver,/=/);if(ver[2]!=want) printf "%s\t%d\n", FILENAME, FNR}'
-            if [[ -f docker-compose.yaml ]]; then
-              awk -v "want=$version" '/&go-image/{split($3,ref,/:/);if(ref[2]!=want) printf "%s\t%d\n", FILENAME, FNR}' docker-compose.yaml
-            fi
+            find . -name Dockerfile -print0 |
+              xargs -0 awk -v "want=$version" \
+                '/^ARG GO_VERSION/{
+                  split($2,ver,/=/)
+                  if(ver[2]!=want) printf "%s\t%d\n", FILENAME, FNR
+                }'
+            find . -name docker-compose.yaml -print0 |
+              xargs -0 awk -v "want=$version" \
+               '/&go-image/{
+                  split($3,ref,/:/)
+                  if(ref[2]!=want) printf "%s\t%d\n", FILENAME, FNR
+                }'
           } |
-            awk -v "want=$version" '{printf "::error file=%s,line=%d,title=Go Version Skew::Go version does not match `go.mod`: want %s\n", $1, $2, want}'
-
-      - name: Setup Go
-        id: 'setupgo'
-        if: >-
-          !cancelled()
-          && steps.checkout.conclusion == 'success'
-        uses: actions/setup-go@v5
+            awk -v "want=$version" \
+              '{printf "::error file=%s,line=%d,title=Go Version Skew::Go version does not match `go.mod`: want %s\n", $1, $2, want}'
+      - id: setupgo
+        if: "!cancelled() && steps.checkout.conclusion == 'success'"
+        name: Setup Go
+        uses: "actions/setup-go@v5"
         with:
-          cache: false
-          go-version-file: ./go.mod
-
-      - name: Go Tidy
-        if: >-
-          !cancelled() &&
-          steps.checkout.conclusion == 'success' &&
-          steps.setupgo.conclusion == 'success'
-        run: | # Make sure every module is tidy.
-          find . \
-            -not \( -name '.?*' -prune \) \
-            -name go.mod \
-            \( -execdir sh -ec 'go mod tidy; git diff --exit-code' \; -o -printf '::error file=%p,title=Tidy Check::Commit would leave go.mod untidy\n' \)
+          cache: 'false'
+          go-version: stable
+      - id: toolcache
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && steps.setupgo.conclusion == 'success'"
+        name: Setup Tool Cache
+        uses: "actions/cache@v4"
+        with:
+          key: "lint-${{ github.action }}-${{ github.workflow_sha }}"
+          paths: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          restore-keys: "lint-${{ github.action }}-"
+      - id: tidy
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && steps.setupgo.conclusion == 'success' && hashFiles('**/go.mod') != ''"
+        name: Go Tidy
+        run: |
+          #!/bin/bash
+          [ -n "$DEBUG" ] && set -x
+          # Make sure every module is tidy.
+          find . -not \( -name '.?*' -prune \) -name go.mod\
+            \(\
+            -execdir sh -ec 'go mod tidy; git diff --exit-code' \;\
+            -o\
+            -printf '::error file=%p,title=Tidy Check::Commit would leave go.mod untidy\n'\
+            \)
+      - id: misspell
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && steps.setupgo.conclusion == 'success'"
+        name: Spellcheck
+        run: |
+          #!/bin/bash
+          [ -n "$DEBUG" ] && set -x
+          : base ref: "\"${GITHUB_BASE_REF-}\""
+          from="origin/${GITHUB_BASE_REF:-main}"
+          fmt='::warning title=Spelling Error,file={{.Filename}},line={{.Line}},col={{.Column}}::{{printf "%q" .Original}} is a misspelling of {{printf "%q" .Corrected}}'
+          # These don't error... yet.
+          git diff -z --name-only "${from}..." -- '*.go' |
+            xargs -0 go run github.com/golangci/misspell/cmd/misspell@latest -f "$fmt" -source go
+          git diff -z --name-only "${from}..." -- '*.md' |
+            xargs -0 go run github.com/golangci/misspell/cmd/misspell@latest -f "$fmt" -source text
+name: Lints
+on:
+  workflow_call:
+    inputs:
+      flags:
+        default: gm
+        description: Regexp flags
+        required: false
+        type: string
+      pattern:
+        default: |
+          ^[^:!]+: .+\n\n.*$
+        description: Commit message pattern
+        required: false
+        type: string
