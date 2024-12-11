@@ -1,0 +1,146 @@
+defaults:
+  run:
+    shell: bash
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - id: go
+        uses: "actions/setup-go@v5"
+        with:
+          go-version: "${{matrix.go}}"
+      - env:
+          INPUT_BUILD_TAGS: "${{ inputs.build-tags }}"
+          INPUT_COVERAGE: "${{ inputs.coverage }}"
+          INPUT_MAKE_TARGET: "${{ inputs.make-target }}"
+          INPUT_RACE: "${{ inputs.race }}"
+        name: Go Environment
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          [ -n "${DEBUG:-}" ] && set -x
+          : GITHUB_SUMMARY: "${GITHUB_SUMMARY:=/dev/null}"
+          {
+            cat <<'.'
+          ## go environment:
+
+          <details>
+
+          ```
+          .
+            go env
+            cat <<'.'
+
+          ```
+
+          </details>
+          .
+          } >> "${GITHUB_SUMMARY}"
+      - env:
+          INPUT_BUILD_TAGS: "${{ inputs.build-tags }}"
+          INPUT_COVERAGE: "${{ inputs.coverage }}"
+          INPUT_MAKE_TARGET: "${{ inputs.make-target }}"
+          INPUT_RACE: "${{ inputs.race }}"
+        id: test-make
+        if: "hashFiles('Makefile') != ''"
+        name: "Run Tests (Makefile)"
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          [ -n "${DEBUG:-}" ] && set -x
+          : MAKE_TARGET: "${INPUT_MAKE_TARGET?missing 'INPUT_MAKE_TARGET' environemnt variable}"
+          exec make "$INPUT_MAKE_TARGET"
+      - env:
+          INPUT_BUILD_TAGS: "${{ inputs.build-tags }}"
+          INPUT_COVERAGE: "${{ inputs.coverage }}"
+          INPUT_MAKE_TARGET: "${{ inputs.make-target }}"
+          INPUT_RACE: "${{ inputs.race }}"
+        id: test-find
+        if: "hashFiles('Makefile') == ''"
+        name: "Run Test (find)"
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          [ -n "${DEBUG:-}" ] && set -x
+          : GITHUB_OUTPUT: "${GITHUB_OUTPUT:=/dev/null}"
+          : RUNNER_TEMP: "${RUNNER_TEMP:=${TMPDIR:-/tmp}}"
+
+          merge_coverage() {
+            mergedir=$(mktemp -d -p "${RUNNER_TEMP}" coverage.XXXX)
+            go tool covdata textfmt -i "$GOCOVERDIR" -o "${mergedir}/cover.out"
+            printf 'coverdir=%s\n' "$mergedir" >> "$GITHUB_OUTPUT"
+          }
+          if [[ -n "${INPUT_COVERAGE:-}" ]]; then
+            GOCOVERDIR=$(mktemp -d -p "${RUNNER_TEMP}" coverage.XXXX)
+            trap 'merge_coverage' EXIT
+          fi
+
+          find .\
+              \( -type d -name vendor -o -name .git -o -name _\* \) -prune\
+            -o\
+              \( -type f -name go.mod \)\
+              -printf '%h\0' |
+            while read -r -d '' dir; do (
+              cd "$dir"
+              printf '::group::%s\n' "$(go list -m)"
+              trap 'echo ::endgroup::' EXIT
+              # shellcheck disable=SC2086
+              go test\
+                ${INPUT_RACE:+-race}\
+                ${INPUT_COVERAGE:+-covermode=atomic}\
+                ${INPUT_BUILD_TAGS:+-tags=}${INPUT_BUILD_TAGS:-}\
+                ./...\
+                ${INPUT_COVERAGE:+-cover -args "-test.gocoverdir=${GOCOVERDIR}"}\
+          ); done
+      - if: "success() && strategy.job-index == 0 && ( steps.test-make.outputs.coverdir != '' || steps.test-find.outputs.coverdir != '' ) "
+        name: Report Coverage
+        uses: "codecov/codecov-action@v5"
+        with:
+          directory: "${{ steps.test-make.outputs.coverdir || steps.test-find.outputs.coverdir }}"
+          override-branch: "${{ github.ref_name }}"
+      - if: "failure() || env.RUNNER_DEBUG == 1"
+        name: Database Logs
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          exec 1> "${GITHUB_SUMMARY:-/dev/stdout}"
+          cat <<.
+          # Database Logs
+
+          Version: $(sudo -u postgres psql -c 'SELECT version();')
+
+          <details>
+
+          .
+          echo '```'
+          sudo journalctl --unit postgresql.service --boot -0
+          printf '```\n\n</details>\n'
+    strategy:
+      matrix:
+        go:
+          - oldstable
+          - stable
+name: Go Tests
+on:
+  workflow_call:
+    inputs:
+      build-tags:
+        description: tktk
+        required: false
+        type: string
+      coverage:
+        default: 'false'
+        description: tktk
+        required: false
+        type: boolean
+      make-target:
+        default: check
+        description: "make target to be used, if a Makefile exists"
+        required: false
+        type: string
+      race:
+        default: 'false'
+        description: tktk
+        required: false
+        type: boolean

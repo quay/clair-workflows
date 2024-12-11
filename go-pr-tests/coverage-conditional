@@ -1,0 +1,7 @@
+success() &&
+strategy.job-index == 0 &&
+(
+steps.test-make.outputs.coverdir != ''
+||
+steps.test-find.outputs.coverdir != ''
+)

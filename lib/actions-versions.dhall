@@ -7,4 +7,5 @@ in  [ "actions/cache@${cache}"
     , "actions/github-script@v7"
     , "actions/setup-go@v5"
     , "actions/upload-artifact@v4"
+    , "codecov/codecov-action@v5"
     ]

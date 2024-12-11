@@ -1,92 +1,147 @@
----
-name: Create Release Archive
+defaults:
+  run:
+    shell: bash
+jobs:
+  lints:
+    name: Archive
+    runs-on: ubuntu-latest
+    steps:
+      - id: checkout
+        if: "!cancelled()"
+        name: Checkout
+        uses: "actions/checkout@v4"
+      - if: "!cancelled() && steps.checkout.conclusion == 'success'"
+        run: |
+          #!/bin/bash
+          [ -n "${DEBUG:-}" ] && set -x
+          : "${GITHUB_REF?GITHUB_REF not provided}"
+          git fetch origin "+${GITHUB_REF}:${GITHUB_REF}"
+      - id: setupgo
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && hashFiles('go.mod') != ''"
+        name: Setup Go
+        uses: "actions/setup-go@v5"
+        with:
+          cache: 'true'
+          go-version: stable
+      - id: create-archive-go
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && hashFiles('go.mod') != '' && hashFiles('Makefile') == ''"
+        name: "Create Archive (go)"
+        run: |
+          #!/bin/bash
+          [ -n "${DEBUG:-}" ] && set -x
+          : "${VERSION:=$(git describe --match 'v*' --long | sed 's/\(.\+\)-\([0-9]\+-g[a-f0-9]\)/\1+\2/')}"
+          : "${PROJECT_NAME:=$(basename "$(pwd)")}"
+          : "${GITHUB_STEP_SUMMARY:=/dev/stderr}"
+          tarball="${PROJECT_NAME}-${VERSION}.tar"
+          prefix="${PROJECT_NAME}-${VERSION}/"
 
+          printf '## Creating Archive\n\n'
+          printf 'making archive for version: %s\n\n' "${VERSION}"
+          git archive --format tar\
+            --prefix "$prefix"\
+            --output "$tarball"\
+            "$VERSION"
+
+          {
+          cat << '.'
+          ### `go mod vendor` output:
+
+          ```
+          .
+          go mod vendor ||:
+          if [[ -d vendor ]]; then
+            dt=$(tar --list --file "$tarball" --utc --full-time "${prefix}go.mod" | awk '{print $4 "T" $5 "Z"}')
+            tar --append --file "$tarball"\
+              --transform "s,^,${prefix},"\
+              --mtime "$(date -Iseconds --date "$dt")"\
+              --sort name\
+              --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime\
+              vendor
+          fi
+          cat << '.'
+          ```
+
+          ### `zstd` output:
+
+          ```
+          .
+          zstd --rm -f "$tarball"
+          echo '```'
+          } >"$GITHUB_STEP_SUMMARY"
+      - id: upload-archive-go
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && steps.create-archive-go.outputs.name != ''"
+        name: "Upload Archive (go)"
+        uses: "actions/upload-artifact@v4"
+        with:
+          if-no-files-found: error
+          name: "${{ inputs.artifact-name }}"
+          path: "${{ steps.create-archive-go.outputs.name }}"
+      - id: create-archive-make
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && hashFiles('Makefile') != ''"
+        name: "Create Archive (make)"
+        run: |
+          #!/bin/bash
+          [ -n "${DEBUG:-}" ] && set -x
+          make dist
+      - id: upload-archive-make
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && steps.create-archive-make.outputs.name != ''"
+        name: "Upload Archive (make)"
+        uses: "actions/upload-artifact@v4"
+        with:
+          if-no-files-found: error
+          name: "${{ inputs.artifact-name }}"
+          path: "${{ steps.create-archive-make.outputs.name }}"
+      - id: create-archive-other
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && hashFiles('Makefile') == '' && hashFiles('go.mod') == ''"
+        name: "Create Archive (other)"
+        run: |
+          echo TODO>&2
+          exit 99
+      - id: upload-archive-other
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && steps.create-archive-other.outputs.name != ''"
+        name: "Upload Archive (other)"
+        uses: "actions/upload-artifact@v4"
+        with:
+          if-no-files-found: error
+          name: "${{ inputs.artifact-name }}"
+          path: "${{ steps.create-archive-other.outputs.name }}"
+      - id: check-cmds
+        if: "!cancelled() && steps.checkout.conclusion == 'success' && (steps.upload-archive-go.conclusion == 'success' || steps.upload-archive-make.conclusion == 'success' || steps.upload-archive-other.conclusion == 'success' || false)"
+        name: Check for Commands
+        run: |
+          #!/bin/bash
+          [ -n "${DEBUG:-}" ] && set -x
+          shopt -s lastpipe
+          : "${GITHUB_STEP_SUMMARY:=/dev/stderr}"
+          : "${GITHUB_OUTPUT:=/dev/null}"
+
+          go list -f '{{if eq "main" .Name}} - {{.ImportPath}}{{end}}' ./... |
+            grep cmd | grep -v internal |
+            read -r cmds
+
+          {
+          if [[ "${#cmds}" -ne 0 ]]; then
+            echo '##' Found commands:
+            echo
+            echo "${cmds}"
+            echo
+          else
+            echo '##' No commands.
+          fi
+          } >"$GITHUB_STEP_SUMMARY"
+          printf 'has-cmds=%d\n' "$(echo "$cmds" | wc -l)" >> "$GITHUB_OUTPUT"
+name: Create Release Archive
 on:
   workflow_call:
     inputs:
       artifact-name:
-        type: string
+        default: archive
+        description: Workflow artifact name to use
         required: false
-        default: |
-          archive
-      compressor:
-        description: |
-          Printf string for the compressor to use on created tar.
-
-          The uncompressed tar will be the first and only string argument.
-          Single quotes need to be shell escaped.
         type: string
-        required: false
-        default: |
-          zstd --rm --compress %q
     outputs:
       has-cmds:
         description: |
           Set non-zero if there are directories under a directory named 'cmd'.
-
           'Internal' directories are ignored.
-        value: ${{ jobs.archive.outputs.has-cmds }}
-
-defaults:
-  run:
-    shell: bash
-
-jobs:
-  archive:
-    name: Archive
-    runs-on: 'ubuntu-latest'
-    outputs:
-      has-cmds: ${{ steps.create-archive.outputs.has-cmds }}
-    steps:
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Go
-        id: 'setupgo'
-        if: >-
-          !cancelled() &&
-          steps.checkout.conclusion == 'success'
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: ./go.mod
-
-      - name: Create Archive
-        id: create-archive
-        if: >-
-          !cancelled() &&
-          steps.setupgo.conclusion == 'success'
-        run: | # Make a tarball with vendored dependencies.
-          # Fix the checkout action overwriting the tag.
-          # See also: https://github.com/actions/checkout/issues/882
-          git fetch origin "+${GITHUB_REF}:${GITHUB_REF}"
-
-          # Varaibles.
-          tag="${GITHUB_REF##refs/tags/}"
-          name="${GITHUB_REPOSITORY##*/}"
-          prefix="${name}-${tag}/"
-          tarball="${name}-${tag}.tar"
-          
-          # Make git archive.
-          git archive --prefix "${prefix}" -o "${tarball}" "${GITHUB_REF}"
-          echo "has-cmds=$(tar -tf "${tarball}" '*/cmd/*' | grep -Ev 'internal|\.go$' | wc -l)" >> "${GITHUB_OUTPUT}"
-
-          # Slipstream dependencies.
-          go mod vendor
-          tar -rf "${tarball}" --transform "s,^,${prefix}," vendor && rm -rf vendor
-          $(printf '${{ inputs.compressor }}' "${tarball}")
-
-          # Output the file name.
-          echo "name="*.tar.* >> "${GITHUB_OUTPUT}"
-
-      - name: Upload Archive
-        uses: actions/upload-artifact@v4
-        if: >-
-          !cancelled() &&
-          steps.create-archive.conclusion == 'success'
-        with:
-          name: '${{ inputs.artifact-name }}'
-          path: '${{ steps.create-archive.outputs.name }}'
-          if-no-files-found: error
+        value: "${{ jobs.check-cmds.outputs.has-cmds }}"

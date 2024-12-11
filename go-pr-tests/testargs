@@ -1,0 +1,3 @@
+${{ inputs.coverage && ' -cover -covermode=atomic' || '' }}
+${{ inputs.race && ' -race' || '' }}
+${{ inputs.build-tags != '' && format(' -tags {0}', inputs.build-tags) || '' }}
