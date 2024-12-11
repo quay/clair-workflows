@@ -1,0 +1,8 @@
+${{
+  ( github.event.issue.pull_request && contains(github.event.comment.body, '/fast-forward')) ||
+  (
+    github.event.review && github.event.review.state == 'approved' && (
+      github.event.pull_request.user.url == 'https://api.github.com/users/dependabot%5Bbot%5D' ||
+      contains(github.event.review.body, '/fast-forward')
+    ))
+}}

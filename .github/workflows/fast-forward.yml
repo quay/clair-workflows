@@ -1,0 +1,27 @@
+defaults:
+  run:
+    shell: bash
+jobs:
+  fast-forward:
+    if: |
+      ${{
+        ( github.event.issue.pull_request && contains(github.event.comment.body, '/fast-forward')) ||
+        (
+          github.event.review && github.event.review.state == 'approved' && (
+            github.event.pull_request.user.url == 'https://api.github.com/users/dependabot%5Bbot%5D' ||
+            contains(github.event.review.body, '/fast-forward')
+          ))
+      }}
+    name: Fast Forward
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fast Forwarding
+        uses: "sequoia-pgp/fast-forward@v1"
+        with:
+          comment: on-error
+          merge: 'true'
+name: Fast Forward
+on:
+  pull_request_review:
+    types:
+      - submitted
