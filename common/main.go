@@ -17,6 +17,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"path"
+	"strings"
 
 	"github.com/quay/clair-workflows/common/internal/dagger"
 )
@@ -128,13 +130,24 @@ func (m *Common) Test(
 	if cover {
 		cmd = append(cmd, `-cover`)
 	}
-	cmd = append(cmd, `./...`)
+	cmd = append(cmd, "./...")
 
-	source.Glob(ctx, `**/go.mod`)
-
-	return m.TestEnv(ctx, source, race, database).
-		WithExec(cmd).
-		Stdout(ctx)
+	ms, err := source.Glob(ctx, `**/go.mod`)
+	if err != nil {
+		return "", err
+	}
+	var out strings.Builder
+	for _, n := range ms {
+		log, err := m.TestEnv(ctx, source, race, database).
+			WithWorkdir(path.Dir(n)).
+			WithExec(cmd).
+			Stdout(ctx)
+		if err != nil {
+			return "", err
+		}
+		out.WriteString(log)
+	}
+	return out.String(), nil
 }
 
 func PostgreSQLService(c *dagger.Container) *dagger.Container {
@@ -149,6 +162,7 @@ func PostgreSQLService(c *dagger.Container) *dagger.Container {
 		WithSecretVariable(`POSTGRES_PASSWORD`, pass).
 		WithEnvVariable(`POSTGRES_INITDB_ARGS`, `--no-sync`).
 		WithMountedCache(`/var/lib/postgresql/data`, dag.CacheVolume(`claircore-postgresql`)).
+		WithExposedPort(5432).
 		AsService(dagger.ContainerAsServiceOpts{
 			UseEntrypoint: true,
 		})
