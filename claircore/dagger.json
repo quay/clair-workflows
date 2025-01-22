@@ -1,0 +1,12 @@
+{
+  "name": "claircore",
+  "engineVersion": "v0.15.2",
+  "sdk": "go",
+  "dependencies": [
+    {
+      "name": "common",
+      "source": "../common"
+    }
+  ],
+  "source": "."
+}
