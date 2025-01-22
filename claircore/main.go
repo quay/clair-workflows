@@ -20,6 +20,7 @@ func (m *Claircore) Test(
 	//
 	// [upstream repository]: https://github.com/quay/claircore
 	//
+	//+ignore=[".git"]
 	//+optional
 	source *dagger.Directory,
 ) (string, error) {

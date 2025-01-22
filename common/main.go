@@ -137,8 +137,12 @@ func (m *Common) Test(
 		return "", err
 	}
 	var out strings.Builder
+	c, err := m.TestEnv(ctx, source, race, database).Sync(ctx)
+	if err != nil {
+		return "", err
+	}
 	for _, n := range ms {
-		log, err := m.TestEnv(ctx, source, race, database).
+		log, err := c.
 			WithWorkdir(path.Dir(n)).
 			WithExec(cmd).
 			Stdout(ctx)
