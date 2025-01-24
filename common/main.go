@@ -18,20 +18,20 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
-	"github.com/quay/clair-workflows/common/internal/dagger"
-)
+	"golang.org/x/sync/errgroup"
 
-const (
-	PostgreSQL = `docker.io/library/postgres:latest`
+	"github.com/quay/clair-workflows/common/internal/dagger"
 )
 
 type Common struct{}
 
 // The base image for use with claircore.
-func (m *Common) Builder() *dagger.Container {
-	toolchain := m.GoDistribution("", "")
+func (m *Common) Builder(ctx context.Context) *dagger.Container {
+	toolchain, _ := m.GoDistribution(ctx, "", "")
+	// what do do with errors?
 
 	return m.UBI("").
 		WithMountedDirectory("/usr/local/go", toolchain).
@@ -52,7 +52,7 @@ func (m *Common) BuildEnv(
 ) *dagger.Container {
 	download := []string{"go", "mod", "download"}
 
-	return m.Builder().
+	return m.Builder(ctx).
 		With(addGoCaches(ctx)).
 		WithDirectory("/src", source).
 		WithWorkdir("/src").
@@ -64,7 +64,7 @@ func (m *Common) BuildEnv(
 			}
 			return c.
 				WithEnvVariable(name, "1").
-				WithExec([]string{"sh", "-ec", `dnf install -y gcc && dnf clean all`})
+				With(InstallPackage("gcc"))
 		}).
 		WithExec(download)
 }
@@ -136,22 +136,32 @@ func (m *Common) Test(
 	if err != nil {
 		return "", err
 	}
-	var out strings.Builder
 	c, err := m.TestEnv(ctx, source, race, database).Sync(ctx)
 	if err != nil {
 		return "", err
 	}
-	for _, n := range ms {
-		log, err := c.
-			WithWorkdir(path.Dir(n)).
-			WithExec(cmd).
-			Stdout(ctx)
-		if err != nil {
-			return "", err
-		}
-		out.WriteString(log)
+	slices.Sort(ms)
+	out := make([]string, len(ms))
+	eg, ctx := errgroup.WithContext(ctx)
+
+	for i, n := range ms {
+		eg.Go(func() error {
+			log, err := c.
+				WithWorkdir(path.Dir(n)).
+				WithExec(cmd).
+				Stdout(ctx)
+			if err != nil {
+				return err
+			}
+			out[i] = strings.TrimSpace(log)
+			return nil
+		})
 	}
-	return out.String(), nil
+
+	if err := eg.Wait(); err != nil {
+		return "", err
+	}
+	return strings.Join(out, "\n"), nil
 }
 
 func PostgreSQLService(c *dagger.Container) *dagger.Container {
@@ -159,9 +169,10 @@ func PostgreSQLService(c *dagger.Container) *dagger.Container {
 		user      = `claircore`
 		plaintext = `hunter2`
 	)
+	addr := `docker.io/library/postgres:` + Versions["postgresql"]
 	pass := dag.SetSecret(`POSTGRES_PASSWORD`, plaintext)
 	srv := dag.Container().
-		From(PostgreSQL).
+		From(addr).
 		WithEnvVariable(`POSTGRES_USER`, user).
 		WithSecretVariable(`POSTGRES_PASSWORD`, pass).
 		WithEnvVariable(`POSTGRES_INITDB_ARGS`, `--no-sync`).

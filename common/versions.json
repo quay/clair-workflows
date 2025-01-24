@@ -1,4 +1,6 @@
 {
-	"postgresql":"17",
-	"ubi": "9.5"
+  "dhall": "1.42.2",
+  "dhall-json": "1.7.12",
+  "postgresql": "17",
+  "ubi": "9.5"
 }
