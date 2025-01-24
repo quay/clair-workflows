@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"slices"
 
 	"github.com/quay/clair-workflows/common/internal/dagger"
 )
@@ -26,21 +27,24 @@ func (m *Common) EmbeddedWorkflows(
 	ctx context.Context,
 	mod *dagger.Directory,
 ) *dagger.Directory {
+	entries, _ := mod.Entries(ctx)
+
 	return dag.Directory().
 		WithDirectory(".github/workflows",
 			dag.Directory().
 				With(func(dir *dagger.Directory) *dagger.Directory {
-					embedded := mod.Directory("workflows")
-					if embedded == nil {
-						return dir
+					const name = `workflows`
+					if slices.Contains(entries, name) {
+						return dir.WithDirectory(".", mod.Directory(name))
 					}
-					return dir.WithDirectory(".", embedded)
+					return dir
 				}).
 				With(func(dir *dagger.Directory) *dagger.Directory {
-					dhall := mod.Directory("dhall")
-					if dhall == nil {
-						return dir
+					const name = `hdall`
+					if slices.Contains(entries, name) {
+						return dir.WithDirectory(".", m.CompileDhall(ctx,
+							mod.Directory("dhall")))
 					}
-					return dir.WithDirectory(".", m.CompileDhall(ctx, dhall))
+					return dir
 				}))
 }
