@@ -6,6 +6,11 @@
     {
       "name": "common",
       "source": "../common"
+    },
+    {
+      "name": "gha",
+      "source": "github.com/dagger/dagger/modules/gha@v0.15.2",
+      "pin": "b13f2c640a019a0197765e8d5cea1cc96786c487"
     }
   ],
   "source": "."

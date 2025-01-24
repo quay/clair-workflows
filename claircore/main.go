@@ -23,15 +23,46 @@ func (m *Claircore) Test(
 	//+ignore=[".git"]
 	//+optional
 	source *dagger.Directory,
+	//+optional
+	race bool,
+	//+optional
+	cover bool,
 ) (string, error) {
 	if source == nil {
 		source = dag.Git("https://github.com/quay/claircore").Branch("main").Tree()
 	}
 	opts := dagger.CommonTestOpts{
-		Race:     false,
-		Cover:    false,
+		Race:     race,
+		Cover:    cover,
 		Unit:     true, // TODO
 		Database: nil,
 	}
 	return dag.Common().Test(ctx, source, opts)
+}
+
+// Actions creates a [dagger.Directory] containing generated GitHub Actions
+// workflows. Use the "export" command to output to the desired directory:
+//
+//	dagger call actions export --path=.
+func (m *Claircore) Actions(ctx context.Context) *dagger.Directory {
+	dir := dag.
+		Gha().
+		WithWorkflow(
+			dag.Gha().Workflow("CI", dagger.GhaWorkflowOpts{
+				PullRequestConcurrency:      "preempt",
+				OnPushBranches:              []string{"main"},
+				OnPullRequestBranches:       []string{"*"},
+				OnPullRequestReadyForReview: true,
+			}).WithJob(
+				dag.Gha().Job("test", "test", dagger.GhaJobOpts{
+					Runner: []string{"ubuntu-latest"},
+					Module: "https://github.com/quay/clair-workflows/claircore@dagger",
+				}))).
+		Generate().
+		WithDirectory(".",
+			dag.Common().EmbeddedWorkflows(
+				dag.CurrentModule().Source(),
+			))
+
+	return dir
 }
