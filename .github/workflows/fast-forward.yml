@@ -13,15 +13,17 @@ jobs:
           ))
       }}
     name: Fast Forward
-    runs-on: ubuntu-latest
+    runs-on: "ubuntu-latest"
     steps:
-      - name: Fast Forwarding
-        uses: "sequoia-pgp/fast-forward@v1"
-        with:
-          comment: on-error
-          merge: 'true'
+    - name: Fast Forwarding
+      uses: "sequoia-pgp/fast-forward@v1"
+      with:
+        comment: "on-error"
+        merge: 'true'
 name: Fast Forward
 on:
   pull_request_review:
     types:
-      - submitted
+    - submitted
+  workflow_call: {}
+
