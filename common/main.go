@@ -89,6 +89,8 @@ func (m *Common) TestEnv(
 	// +optional
 	race bool,
 	// +optional
+	fips bool,
+	// +optional
 	database *dagger.Service,
 ) *dagger.Container {
 	c := m.BuildEnv(ctx, source, race).
@@ -104,7 +106,8 @@ func (m *Common) TestEnv(
 		c = c.With(PostgreSQLService)
 	}
 
-	return c
+	return c.
+		With(enableFIPS(ctx, fips))
 }
 
 // Return the result of running tests on the indicated source.
@@ -115,6 +118,8 @@ func (m *Common) Test(
 	race bool,
 	// +optional
 	cover bool,
+	// +optional
+	fips bool,
 	// +optional
 	unit bool,
 	// +optional
@@ -136,7 +141,7 @@ func (m *Common) Test(
 	if err != nil {
 		return "", err
 	}
-	c, err := m.TestEnv(ctx, source, race, database).Sync(ctx)
+	c, err := m.TestEnv(ctx, source, race, fips, database).Sync(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -167,7 +172,7 @@ func (m *Common) Test(
 func PostgreSQLService(c *dagger.Container) *dagger.Container {
 	const (
 		user      = `claircore`
-		plaintext = `hunter2`
+		plaintext = `hunter2hunter2` // Needs to be at least 14 characters, otherwise crypto/hmac trips FIPS-140 rules.
 	)
 	addr := `docker.io/library/postgres:` + Versions["postgresql"]
 	pass := dag.SetSecret(`POSTGRES_PASSWORD`, plaintext)
@@ -197,4 +202,13 @@ func addGoCaches(ctx context.Context) dagger.WithContainerFunc {
 
 func addTestCaches(ctx context.Context) dagger.WithContainerFunc {
 	return cacheDir(ctx, `clair-testing`, "")
+}
+
+func enableFIPS(ctx context.Context, enable bool) dagger.WithContainerFunc {
+	return func(c *dagger.Container) *dagger.Container {
+		if enable {
+			return c.WithEnvVariable("GODEBUG", "fips140=only")
+		}
+		return c
+	}
 }

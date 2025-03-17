@@ -27,6 +27,8 @@ func (m *Claircore) Test(
 	race bool,
 	//+optional
 	cover bool,
+	//+optional
+	fips bool,
 ) (string, error) {
 	if source == nil {
 		source = dag.Git("https://github.com/quay/claircore").Branch("main").Tree()
@@ -36,6 +38,7 @@ func (m *Claircore) Test(
 		Cover:    cover,
 		Unit:     true, // TODO
 		Database: nil,
+		Fips:     fips,
 	}
 	return dag.Common().Test(ctx, source, opts)
 }
