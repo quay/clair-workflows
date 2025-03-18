@@ -11,22 +11,31 @@ import (
 // Claircore holds actions for the claircore repo.
 type Claircore struct{}
 
-// Test ...
+// Test runs the tests for all the go modules in the Claircore repository.
 func (m *Claircore) Test(
 	ctx context.Context,
 	// Source to use for testing.
 	//
-	// If omitted, the `main` branch of the [upstream repository] will be used.
-	//
-	// [upstream repository]: https://github.com/quay/claircore
+	// If omitted, `https://github.com/quay/claircore@main` will be used.
 	//
 	//+ignore=[".git"]
 	//+optional
 	source *dagger.Directory,
+	// Run unit tests.
+	//
+	//+optional
+	//+default=true
+	unit bool,
+	// Build and run tests with the race detector.
+	//
 	//+optional
 	race bool,
+	// Build and run tests with coverage information.
+	//
 	//+optional
 	cover bool,
+	// Run tests with upstream FIPS 140 support. Requires go >=1.24.
+	//
 	//+optional
 	fips bool,
 ) (string, error) {
@@ -36,7 +45,7 @@ func (m *Claircore) Test(
 	opts := dagger.CommonTestOpts{
 		Race:     race,
 		Cover:    cover,
-		Unit:     true, // TODO
+		Unit:     unit,
 		Database: nil,
 		Fips:     fips,
 	}
@@ -44,7 +53,9 @@ func (m *Claircore) Test(
 }
 
 // Actions creates a [dagger.Directory] containing generated GitHub Actions
-// workflows. Use the "export" command to output to the desired directory:
+// workflows.
+//
+// Use the "export" command to output to the desired directory:
 //
 //	dagger call actions export --path=.
 func (m *Claircore) Actions(ctx context.Context) *dagger.Directory {
