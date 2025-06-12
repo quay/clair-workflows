@@ -41,7 +41,11 @@ func run(pass *analysis.Pass) (any, error) {
 			}
 		case *types.Func:
 			f = f.Origin()
-			if f.Pkg().Path() != "fmt" {
+			pkg := f.Pkg()
+			if pkg == nil { // ???
+				return
+			}
+			if pkg.Path() != "fmt" {
 				return
 			}
 			switch f.Name() {
