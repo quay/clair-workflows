@@ -1,30 +1,14 @@
 package bareprints
 
 import (
-	"fmt"
 	"testing"
 
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-// Test function
-func _() {
-	println("")
-	print("")
-	fmt.Fprintln(nil)
-	fmt.Println("")
-	fmt.Print("")
-	fmt.Printf("")
-}
-
 var files = map[string]string{
 	"example/example.go": `package example
-
-import (
-	"fmt"
-)
-
-// Test function
+import "fmt"
 func _() {
 	println("") // want "found print to stdout: .+"
 	print("") // want "found print to stdout: .+"
@@ -32,6 +16,15 @@ func _() {
 	fmt.Println("") // want "found print to stdout: .+"
 	fmt.Print("") // want "found print to stdout: .+"
 	fmt.Printf("") // want "found print to stdout: .+"
+}
+`,
+	"example/excluded_test.go": `package example
+import "fmt"
+func Example() {
+	fmt.Println("Example functions are exempted")
+}
+func helper(){
+	fmt.Println("other functions are not exempted") // want "found print to stdout: .+"
 }
 `,
 }

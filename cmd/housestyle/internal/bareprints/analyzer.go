@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -19,16 +20,11 @@ var Analyzer = &analysis.Analyzer{
 }
 
 func run(pass *analysis.Pass) (any, error) {
-	nodeFilter := []ast.Node{
-		(*ast.File)(nil),
-		(*ast.CallExpr)(nil),
-	}
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-	inspect.Preorder(nodeFilter, func(n ast.Node) {
-		call, ok := n.(*ast.CallExpr)
-		if !ok || call == nil {
-			return
-		}
+
+Walk:
+	for cur := range inspect.Root().Preorder((*ast.CallExpr)(nil)) {
+		call := cur.Node().(*ast.CallExpr)
 
 		obj := typeutil.Callee(pass.TypesInfo, call)
 		switch f := obj.(type) {
@@ -37,44 +33,53 @@ func run(pass *analysis.Pass) (any, error) {
 			case "print":
 			case "println":
 			default:
-				return
+				continue
 			}
 		case *types.Func:
 			f = f.Origin()
 			pkg := f.Pkg()
 			if pkg == nil { // ???
-				return
+				continue
 			}
 			if pkg.Path() != "fmt" {
-				return
+				continue
 			}
 			switch f.Name() {
 			case "Print":
 			case "Printf":
 			case "Println":
 			default:
-				return
+				continue
 			}
 		default:
-			return
+			continue
 		}
 
-		f := pass.Fset.File(n.Pos())
-		ln := f.Line(n.Pos())
+		f := pass.Fset.File(call.Pos())
+		// This is a bare print, but allow it if in an example.
+		for p := range cur.Enclosing((*ast.FuncDecl)(nil)) {
+			decl := p.Node().(*ast.FuncDecl)
+			if strings.HasPrefix(decl.Name.Name, `Example`) &&
+				strings.HasSuffix(f.Name(), `_test.go`) {
+				continue Walk
+			}
+		}
+
+		ln := f.Line(call.Pos())
 		start := f.LineStart(ln)
 		// This should always hold, because it should be impossible to have the
 		// very last line of a file be a function call.
 		end := f.LineStart(ln + 1)
 		b, err := pass.ReadFile(f.Name())
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 
 		pass.Report(analysis.Diagnostic{
 			Pos: call.Pos(),
 			End: call.End(),
 			Message: fmt.Sprintf("found print to stdout: %+#q",
-				string(b[f.Position(n.Pos()).Offset:f.Position(n.End()).Offset]),
+				string(b[f.Position(call.Pos()).Offset:f.Position(call.End()).Offset]),
 			),
 			SuggestedFixes: []analysis.SuggestedFix{
 				{
@@ -88,6 +93,7 @@ func run(pass *analysis.Pass) (any, error) {
 				},
 			},
 		})
-	})
+	}
+
 	return nil, nil
 }
