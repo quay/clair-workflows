@@ -149,7 +149,18 @@ func listDirs(ctx context.Context, dir string) (iter.Seq[string], error) {
 		return nil, err
 	}
 	return func(yield func(string) bool) {
+		if !yield(dir) {
+			return
+		}
 		for p := range seq {
+			switch {
+			case strings.HasPrefix(filepath.Base(p), "."):
+				continue
+			case strings.HasSuffix(p, "/testdata"):
+				continue
+			case strings.Contains(p, "/testdata/"):
+				continue
+			}
 			if !yield(filepath.Join(dir, p)) {
 				return
 			}
@@ -204,10 +215,16 @@ func runLines(ctx context.Context, cmd *exec.Cmd) (iter.Seq[string], error) {
 		}
 
 		if err := s.Err(); err != nil {
-			l.ErrorContext(ctx, "reading from inferior command", "error", err)
+			l.ErrorContext(ctx, "reading from inferior command",
+				"error", err,
+				"output", stderr.String(),
+			)
 		}
 		if err := cmd.Wait(); err != nil {
-			l.ErrorContext(ctx, "waiting for inferior command", "error", err)
+			l.ErrorContext(ctx, "waiting for inferior command",
+				"error", err,
+				"output", stderr.String(),
+			)
 		}
 	}
 	return seq, nil
