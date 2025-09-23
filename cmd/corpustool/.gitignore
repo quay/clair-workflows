@@ -1,0 +1,4 @@
+corpustool
+*.db
+*.db-wal
+*.db-shm
