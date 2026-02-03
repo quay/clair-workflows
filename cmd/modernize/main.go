@@ -112,7 +112,7 @@ func modernize(ctx context.Context, dir string, pkg string) error {
 	l.DebugContext(ctx, "modernizing")
 	for _, p := range passes {
 		l := l.With("pass", p)
-		cmd := exec.CommandContext(ctx, "go", "run", cmdpath, "-fix", "-test", "-category", p, ".")
+		cmd := exec.CommandContext(ctx, "go", "run", cmdpath, "-fix", "-test", "-"+p, ".")
 		cmd.Dir = dir
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
@@ -253,22 +253,29 @@ func gitReset(ctx context.Context, dir string) error {
 }
 
 // Cmdpath is the path passed to `go run`.
-const cmdpath = `golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest`
+const cmdpath = `golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@v0.41.0`
 
 // Passes is all current "modernize" passes.
 var passes = []string{
-	"forvar",
-	"slicescontains",
-	"minmax",
-	"sortslice",
-	"efaceany",
-	"mapsloop",
-	"fmtappendf",
-	"testingcontext",
-	"omitzero",
+	"any",
 	"bloop",
+	"fmtappendf",
+	"forvar",
+	"mapsloop",
+	"minmax",
+	"newexpr",
+	"omitzero",
+	"plusbuild",
 	"rangeint",
-	"stringsseq",
+	"reflecttypefor",
+	"slicescontains",
+	"slicessort",
+	"stditerators",
+	"stringsbuilder",
+	"stringscut",
 	"stringscutprefix",
+	"stringsseq",
+	"testingcontext",
+	"unsafefuncs",
 	"waitgroup",
 }
