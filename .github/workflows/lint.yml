@@ -10,7 +10,7 @@ jobs:
           INPUT_FLAGS: "${{ inputs.flags }}"
           INPUT_PATTERN: "${{ inputs.pattern }}"
         name: Commit Check
-        uses: "actions/github-script@v7"
+        uses: "actions/github-script@v8"
         with:
           script: |
             core.debug(`eventName: ${context.eventName}`);
@@ -48,7 +48,7 @@ jobs:
       - id: checkout
         if: "!cancelled()"
         name: Checkout
-        uses: "actions/checkout@v4"
+        uses: "actions/checkout@v5"
       - id: filenames
         if: "!cancelled() && steps.checkout.conclusion == 'success'"
         name: Check Filenames
@@ -102,14 +102,14 @@ jobs:
       - id: setupgo
         if: "!cancelled() && steps.checkout.conclusion == 'success'"
         name: Setup Go
-        uses: "actions/setup-go@v5"
+        uses: "actions/setup-go@v6"
         with:
           cache: 'false'
           go-version: stable
       - id: toolcache
         if: "!cancelled() && steps.checkout.conclusion == 'success' && steps.setupgo.conclusion == 'success'"
         name: Setup Tool Cache
-        uses: "actions/cache@v4"
+        uses: "actions/cache@v5"
         with:
           key: "lint-${{ github.action }}-${{ github.workflow_sha }}"
           paths: |

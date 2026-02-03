@@ -9,7 +9,7 @@ jobs:
       - id: checkout
         if: "!cancelled()"
         name: Checkout
-        uses: "actions/checkout@v4"
+        uses: "actions/checkout@v5"
       - if: "!cancelled() && steps.checkout.conclusion == 'success'"
         run: |
           #!/bin/bash
@@ -19,7 +19,7 @@ jobs:
       - id: setupgo
         if: "!cancelled() && steps.checkout.conclusion == 'success' && hashFiles('go.mod') != ''"
         name: Setup Go
-        uses: "actions/setup-go@v5"
+        uses: "actions/setup-go@v6"
         with:
           cache: 'true'
           go-version: stable
@@ -71,7 +71,7 @@ jobs:
       - id: upload-archive-go
         if: "!cancelled() && steps.checkout.conclusion == 'success' && steps.create-archive-go.outputs.name != ''"
         name: "Upload Archive (go)"
-        uses: "actions/upload-artifact@v4"
+        uses: "actions/upload-artifact@v6"
         with:
           if-no-files-found: error
           name: "${{ inputs.artifact-name }}"
@@ -86,7 +86,7 @@ jobs:
       - id: upload-archive-make
         if: "!cancelled() && steps.checkout.conclusion == 'success' && steps.create-archive-make.outputs.name != ''"
         name: "Upload Archive (make)"
-        uses: "actions/upload-artifact@v4"
+        uses: "actions/upload-artifact@v6"
         with:
           if-no-files-found: error
           name: "${{ inputs.artifact-name }}"
@@ -100,7 +100,7 @@ jobs:
       - id: upload-archive-other
         if: "!cancelled() && steps.checkout.conclusion == 'success' && steps.create-archive-other.outputs.name != ''"
         name: "Upload Archive (other)"
-        uses: "actions/upload-artifact@v4"
+        uses: "actions/upload-artifact@v6"
         with:
           if-no-files-found: error
           name: "${{ inputs.artifact-name }}"

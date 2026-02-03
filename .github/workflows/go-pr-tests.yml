@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - id: go
-        uses: "actions/setup-go@v5"
+        uses: "actions/setup-go@v6"
         with:
           go-version: "${{matrix.go}}"
       - env:
@@ -15,6 +15,7 @@ jobs:
           INPUT_COVERAGE: "${{ inputs.coverage }}"
           INPUT_MAKE_TARGET: "${{ inputs.make-target }}"
           INPUT_RACE: "${{ inputs.race }}"
+        if: env.RUNNER_DEBUG == 1
         name: Go Environment
         run: |
           #!/bin/bash

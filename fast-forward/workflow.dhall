@@ -9,7 +9,7 @@ let workflow =
             , pull_request_review = Some GithubActions.PullRequestReview::{
               , types = Some [ "submitted" ]
               }
-              , workflow_call = Some GithubActions.WorkflowCall::{=}
+            , workflow_call = Some GithubActions.WorkflowCall::{=}
             }
           , jobs = toMap
               { fast-forward = GithubActions.Job::{

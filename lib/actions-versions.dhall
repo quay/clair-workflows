@@ -1,11 +1,11 @@
-let cache = "v4"
+let cache = "v5"
 
 in  [ "actions/cache@${cache}"
     , "actions/cache/restore@${cache}"
     , "actions/cache/save@${cache}"
-    , "actions/checkout@v4"
-    , "actions/github-script@v7"
-    , "actions/setup-go@v5"
-    , "actions/upload-artifact@v4"
+    , "actions/checkout@v5"
+    , "actions/github-script@v8"
+    , "actions/setup-go@v6"
+    , "actions/upload-artifact@v6"
     , "codecov/codecov-action@v5"
     ]
